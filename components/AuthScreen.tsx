@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { auth, isFirebaseConfigured } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { Shield, ChevronRight, Terminal, AlertTriangle, Cpu, Globe, ExternalLink, Info } from 'lucide-react';
+import { Shield, ChevronRight, Terminal, AlertTriangle, Cpu, Globe, ExternalLink, Info, AlertOctagon, Lock } from 'lucide-react';
 
 export const AuthScreen: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -11,9 +11,15 @@ export const AuthScreen: React.FC = () => {
   const [technicalError, setTechnicalError] = useState(''); // Store raw error for debugging
   const [loading, setLoading] = useState(false);
 
-  // Debug vars
+  // Debug vars & Heuristics
   const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'UNKNOWN';
-  const apiKey = process.env.VITE_FIREBASE_API_KEY ? `${process.env.VITE_FIREBASE_API_KEY.substring(0, 4)}...` : 'MISSING';
+  // Obscure key for UI
+  const rawKey = process.env.VITE_FIREBASE_API_KEY || '';
+  const apiKeyDisplay = rawKey ? `${rawKey.substring(0, 6)}...${rawKey.substring(rawKey.length - 4)}` : 'MISSING';
+  const authDomain = process.env.VITE_FIREBASE_AUTH_DOMAIN || '';
+  
+  const derivedIdFromDomain = authDomain.split('.')[0];
+  const isMismatchLikely = projectId !== 'UNKNOWN' && derivedIdFromDomain && projectId !== derivedIdFromDomain;
 
   const getFriendlyErrorMessage = (rawError: string) => {
     if (rawError.includes('auth/invalid-email')) return "Invalid email address format.";
@@ -23,7 +29,7 @@ export const AuthScreen: React.FC = () => {
     if (rawError.includes('auth/weak-password')) return "Password should be at least 6 characters.";
     if (rawError.includes('identity-toolkit-api')) return "CRITICAL: The 'Identity Toolkit API' is disabled in Google Cloud.";
     if (rawError.includes('operation-not-allowed')) return "CONFIG ERROR: Email/Password Sign-in is not enabled in Firebase Console.";
-    if (rawError.includes('auth/configuration-not-found')) return "CONFIG ERROR: Email/Password Sign-in is disabled OR API Key mismatches Project ID.";
+    if (rawError.includes('auth/configuration-not-found')) return "ACCESS DENIED: API Key rejected by server.";
     if (rawError.includes('network-request-failed')) return "Network Error. Check your connection or API Key restrictions.";
     return rawError.replace('Firebase:', '').trim();
   };
@@ -58,14 +64,6 @@ export const AuthScreen: React.FC = () => {
            <AlertTriangle size={64} className="animate-pulse" />
            <h1 className="text-3xl font-bold uppercase tracking-widest">System Configuration Error</h1>
            <p className="max-w-md">The cloud synchronization module (Firebase) has not been initialized. Please configure the environment variables in your deployment settings.</p>
-           <div className="text-xs text-left bg-red-950/20 p-4 border border-red-900 mt-4 font-mono">
-              <p>REQUIRED VARS:</p>
-              <ul className="list-disc pl-4 mt-2 space-y-1">
-                 <li>VITE_FIREBASE_API_KEY</li>
-                 <li>VITE_FIREBASE_AUTH_DOMAIN</li>
-                 <li>VITE_FIREBASE_PROJECT_ID</li>
-              </ul>
-           </div>
         </div>
      );
   }
@@ -76,7 +74,6 @@ export const AuthScreen: React.FC = () => {
       <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(255,0,0,0.02),rgba(255,0,0,0.06))] bg-[length:100%_4px,6px_100%] pointer-events-none"></div>
       
       <div className="z-10 w-full max-w-md p-8 border border-red-900 bg-black shadow-[0_0_50px_rgba(220,38,38,0.1)] relative">
-        {/* Corner markers */}
         <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-red-600"></div>
         <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-red-600"></div>
         <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-red-600"></div>
@@ -105,32 +102,32 @@ export const AuthScreen: React.FC = () => {
                      <span>{error}</span>
                    </div>
                    
-                   {/* Provide a direct fix link if it is the API error */}
-                   {technicalError.includes('identity-toolkit-api') && (
-                     <a 
-                       href={`https://console.developers.google.com/apis/api/identitytoolkit.googleapis.com/overview?project=${process.env.VITE_FIREBASE_PROJECT_ID}`}
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       className="mt-2 text-center bg-red-900/50 hover:bg-red-800 py-2 text-white flex items-center justify-center gap-2"
-                     >
-                       <ExternalLink size={12} /> ENABLE API IN GOOGLE CLOUD
-                     </a>
-                   )}
                    {(technicalError.includes('operation-not-allowed') || technicalError.includes('auth/configuration-not-found')) && (
                      <div className="flex flex-col gap-2 mt-2">
-                        <a 
-                          href="https://console.firebase.google.com/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-center bg-red-900/50 hover:bg-red-800 py-2 text-white flex items-center justify-center gap-2"
-                        >
-                          <ExternalLink size={12} /> OPEN FIREBASE CONSOLE
-                        </a>
+                        {/* Case 1: Key Restrictions */}
                         <div className="bg-black/50 p-2 border border-red-800/50 text-left font-mono">
-                           <p className="text-[10px] text-red-400 mb-1 flex items-center gap-1"><Info size={10} /> Verify Project Settings:</p>
-                           <p className="text-[10px] text-gray-400 break-all">App Project ID: <span className="text-white">{projectId}</span></p>
-                           <p className="text-[10px] text-gray-400">App API Key: <span className="text-white">{apiKey}</span></p>
-                           <p className="text-[10px] text-gray-500 mt-1 italic">Compare these with 'Project Settings' in console.</p>
+                           <p className="text-[10px] text-white font-bold mb-1 flex items-center gap-1"><Lock size={10} /> POTENTIAL CAUSE: API RESTRICTIONS</p>
+                           <p className="text-[10px] text-gray-400 leading-tight">
+                              If your API Key has "Application Restrictions" or "API Restrictions" in Google Cloud, it may be blocking Firebase Auth.
+                           </p>
+                           <a 
+                             href={`https://console.cloud.google.com/apis/credentials?project=${projectId}`}
+                             target="_blank"
+                             rel="noopener noreferrer"
+                             className="mt-2 block text-center bg-red-900/30 hover:bg-red-800 py-1 text-white border border-red-800"
+                           >
+                             <ExternalLink size={10} className="inline mr-1" /> CHECK KEY RESTRICTIONS
+                           </a>
+                        </div>
+                        
+                        {/* Case 2: Mismatch */}
+                        <div className="bg-black/50 p-2 border border-red-800/50 text-left font-mono">
+                           <p className="text-[10px] text-white font-bold mb-1 flex items-center gap-1"><Info size={10} /> CONFIG DIAGNOSTIC</p>
+                           <p className="text-[10px] text-gray-400">Target Project: <span className="text-white">{projectId}</span></p>
+                           <p className="text-[10px] text-gray-400">Loaded Key: <span className="text-white">{apiKeyDisplay}</span></p>
+                           {isMismatchLikely && (
+                             <p className="text-yellow-500 font-bold mt-1">WARNING: AuthDomain implies project '{derivedIdFromDomain}'!</p>
+                           )}
                         </div>
                      </div>
                    )}
