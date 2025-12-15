@@ -1,18 +1,33 @@
 import React, { useState } from 'react';
 import { auth, isFirebaseConfigured } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { Shield, ChevronRight, Terminal, AlertTriangle, Cpu, Globe } from 'lucide-react';
+import { Shield, ChevronRight, Terminal, AlertTriangle, Cpu, Globe, ExternalLink } from 'lucide-react';
 
 export const AuthScreen: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [technicalError, setTechnicalError] = useState(''); // Store raw error for debugging
   const [loading, setLoading] = useState(false);
+
+  const getFriendlyErrorMessage = (rawError: string) => {
+    if (rawError.includes('auth/invalid-email')) return "Invalid email address format.";
+    if (rawError.includes('auth/user-not-found') || rawError.includes('auth/invalid-credential')) return "Invalid email or password.";
+    if (rawError.includes('auth/wrong-password')) return "Incorrect password.";
+    if (rawError.includes('auth/email-already-in-use')) return "Email is already registered. Please login instead.";
+    if (rawError.includes('auth/weak-password')) return "Password should be at least 6 characters.";
+    if (rawError.includes('identity-toolkit-api')) return "CRITICAL: The 'Identity Toolkit API' is disabled in Google Cloud.";
+    if (rawError.includes('operation-not-allowed')) return "CONFIG ERROR: Email/Password Sign-in is not enabled in Firebase Console.";
+    if (rawError.includes('auth/configuration-not-found')) return "CONFIG ERROR: Email/Password Sign-in is disabled OR API Key mismatches Project ID.";
+    if (rawError.includes('network-request-failed')) return "Network Error. Check your connection or API Key restrictions.";
+    return rawError.replace('Firebase:', '').trim();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setTechnicalError('');
     setLoading(true);
 
     try {
@@ -24,7 +39,10 @@ export const AuthScreen: React.FC = () => {
         await createUserWithEmailAndPassword(auth, email, password);
       }
     } catch (err: any) {
-      setError(err.message.replace('Firebase:', '').trim());
+      console.error("Auth Error:", err);
+      const rawMsg = err.message || JSON.stringify(err);
+      setTechnicalError(rawMsg);
+      setError(getFriendlyErrorMessage(rawMsg));
     } finally {
       setLoading(false);
     }
@@ -77,8 +95,33 @@ export const AuthScreen: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
              {error && (
-                <div className="border border-red-500 bg-red-900/20 p-2 text-xs text-red-500 font-bold uppercase tracking-wide flex items-center gap-2">
-                   <AlertTriangle size={14} /> {error}
+                <div className="border border-red-500 bg-red-900/20 p-3 text-xs text-red-500 font-bold uppercase tracking-wide flex flex-col gap-2">
+                   <div className="flex items-center gap-2">
+                     <AlertTriangle size={14} className="shrink-0" /> 
+                     <span>{error}</span>
+                   </div>
+                   
+                   {/* Provide a direct fix link if it is the API error */}
+                   {technicalError.includes('identity-toolkit-api') && (
+                     <a 
+                       href={`https://console.developers.google.com/apis/api/identitytoolkit.googleapis.com/overview?project=${process.env.VITE_FIREBASE_PROJECT_ID}`}
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       className="mt-2 text-center bg-red-900/50 hover:bg-red-800 py-2 text-white flex items-center justify-center gap-2"
+                     >
+                       <ExternalLink size={12} /> ENABLE API IN GOOGLE CLOUD
+                     </a>
+                   )}
+                   {(technicalError.includes('operation-not-allowed') || technicalError.includes('auth/configuration-not-found')) && (
+                     <a 
+                       href="https://console.firebase.google.com/"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       className="mt-2 text-center bg-red-900/50 hover:bg-red-800 py-2 text-white flex items-center justify-center gap-2"
+                     >
+                       <ExternalLink size={12} /> OPEN FIREBASE CONSOLE
+                     </a>
+                   )}
                 </div>
              )}
 
