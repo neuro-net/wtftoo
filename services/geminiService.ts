@@ -4,10 +4,15 @@ import { BENZO_DATA } from "../constants";
 
 export const generateHealthInsight = async (logs: DailyLog[]) => {
   try {
-    // We strictly follow the "Runtime" instructions: no checking for API key presence in UI code.
-    // It is assumed to be in process.env.API_KEY.
-    // We add || '' to satisfy TypeScript strict null checks, though the key should be injected by Vite.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    const apiKey = process.env.API_KEY;
+    
+    // Explicit check to provide better UI feedback than a generic crash
+    if (!apiKey) {
+       console.warn("Gemini API Key missing");
+       return "AI OFFLINE: Configuration key not found. Stats will accumulate but insights are disabled.";
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
     
     // Prepare data summary for the last 7 days
     const recentLogs = logs.slice(0, 7);
@@ -48,6 +53,6 @@ export const generateHealthInsight = async (logs: DailyLog[]) => {
     return response.text;
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Unable to generate insights at this moment. Stay strong and keep tracking.";
+    return "CONNECTION INTERRUPTED: Unable to process neuro-stats. Retrying next cycle.";
   }
 };

@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { BENZO_DATA } from '../constants';
 import { DailyLog, TakenMedication } from '../types';
-import { Plus, Trash2, Save, AlertTriangle, Terminal, BrainCircuit, Clock } from 'lucide-react';
+import { Plus, Trash2, Save, AlertTriangle, Terminal, BrainCircuit, Clock, AlertOctagon } from 'lucide-react';
 
 interface TrackerProps {
-  onSave: (log: DailyLog) => void;
-  onDelete: (id: string) => void;
+  onSave: (log: DailyLog) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   logs: DailyLog[];
   readOnly?: boolean;
 }
 
 export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOnly }) => {
   const todayStr = new Date().toISOString().split('T')[0];
-  const nowStr = new Date().toTimeString().substring(0, 5); // HH:MM
+  // Default to 08:00 as requested
+  const DEFAULT_TIME = "08:00";
   
   const [date, setDate] = useState(todayStr);
   const [currentLogId, setCurrentLogId] = useState<string | null>(null);
@@ -26,11 +27,12 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
   const [selectedMedId, setSelectedMedId] = useState(BENZO_DATA[0].id);
   const [customMedName, setCustomMedName] = useState('');
   const [medAmount, setMedAmount] = useState<string>('');
-  const [medTime, setMedTime] = useState<string>(nowStr);
+  const [medTime, setMedTime] = useState<string>(DEFAULT_TIME);
   const [medReason, setMedReason] = useState('');
   
-  // Safety state for deletion
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Auto-load data if a log exists for the selected date
   useEffect(() => {
@@ -42,7 +44,8 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
       setMedications(foundLog.medications);
       setNotes(foundLog.notes || '');
       setMood(foundLog.mood || 5);
-      setConfirmDelete(false); // Reset delete confirmation on load
+      setConfirmDelete(false);
+      setError(null);
     } else {
       setCurrentLogId(null);
       setAlcoholConsumed(false);
@@ -51,6 +54,7 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
       setNotes('');
       setMood(5);
       setConfirmDelete(false);
+      setError(null);
     }
   }, [date, logs]);
 
@@ -72,10 +76,11 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
       }
     ]);
     
+    // Reset fields for next entry
     setMedAmount('');
     setCustomMedName('');
     setMedReason('');
-    setMedTime(nowStr);
+    setMedTime(DEFAULT_TIME); // Reset to 08:00
     if (selectedMedId === 'other') setSelectedMedId(BENZO_DATA[0].id);
   };
 
@@ -83,8 +88,11 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
     setMedications(medications.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    setIsSaving(true);
+
     const newLog: DailyLog = {
       id: currentLogId || Math.random().toString(36).substr(2, 9),
       date,
@@ -95,16 +103,34 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
       mood,
       timestamp: new Date(date).getTime()
     };
-    onSave(newLog);
+
+    try {
+      await onSave(newLog);
+    } catch (err: any) {
+      console.error("Save failed", err);
+      if (err.code === 'permission-denied') {
+        setError("DATABASE PERMISSION DENIED. Check Cloud Firestore Rules in Firebase Console.");
+      } else {
+        setError("WRITE FAILED: " + (err.message || "Unknown Error"));
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleDeleteLog = () => {
+  const handleDeleteLog = async () => {
     if (currentLogId) {
       if (confirmDelete) {
-        onDelete(currentLogId);
+        try {
+          setIsSaving(true);
+          await onDelete(currentLogId);
+        } catch (err: any) {
+          setError("DELETE FAILED: " + err.message);
+        } finally {
+          setIsSaving(false);
+        }
       } else {
         setConfirmDelete(true);
-        // Auto reset confirmation after 3s
         setTimeout(() => setConfirmDelete(false), 3000);
       }
     }
@@ -121,7 +147,6 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
 
   return (
     <div className="max-w-2xl mx-auto border border-[var(--border)] bg-[var(--bg)] relative shadow-[0_0_30px_rgba(var(--primary-rgb),0.1)]">
-      {/* Decorative HUD corners */}
       <div className="absolute top-0 left-0 w-2 h-2 bg-[var(--primary)]"></div>
       <div className="absolute top-0 right-0 w-2 h-2 bg-[var(--primary)]"></div>
       <div className="absolute bottom-0 left-0 w-2 h-2 bg-[var(--primary)]"></div>
@@ -135,8 +160,17 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
         {currentLogId && <span className="ml-auto text-xs text-[var(--secondary)] bg-[var(--muted-bg)] px-2 py-1 border border-[var(--primary)] animate-pulse">EDITING EXISTING ENTRY</span>}
       </div>
       
+      {error && (
+        <div className="bg-red-900/20 border-b border-red-500 p-4 flex items-center gap-3 text-red-500 font-bold uppercase tracking-wide">
+          <AlertOctagon size={24} className="shrink-0" />
+          <div className="text-xs">
+             <p>CRITICAL ERROR:</p>
+             <p>{error}</p>
+          </div>
+        </div>
+      )}
+      
       <form onSubmit={handleSubmit} className="p-6 space-y-8">
-        {/* Date Selection */}
         <div>
           <label className="block text-xs font-bold text-[var(--secondary)] uppercase mb-2 tracking-widest">Timestamp</label>
           <input 
@@ -243,7 +277,7 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
               </div>
 
               <div className="w-full sm:w-1/5">
-                <label className="block text-xs font-bold text-[var(--secondary)] mb-1 uppercase">Time</label>
+                <label className="block text-xs font-bold text-[var(--secondary)] mb-1 uppercase">Time (24h)</label>
                 <div className="relative">
                   <input 
                     type="time" 
@@ -267,7 +301,6 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
               </div>
             </div>
             
-            {/* Conditional "Other" Name Input */}
             {selectedMedId === 'other' && (
               <div className="animate-in fade-in">
                 <label className="block text-xs font-bold text-[var(--secondary)] mb-1 uppercase">Specific Name</label>
@@ -352,6 +385,7 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
              <button
                type="button"
                onClick={handleDeleteLog}
+               disabled={isSaving}
                className={`flex-1 py-4 border font-bold text-lg uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3
                  ${confirmDelete 
                    ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--bg)] animate-pulse' 
@@ -365,9 +399,10 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
            )}
            <button 
             type="submit" 
-            className="flex-[2] py-4 bg-[var(--muted-bg)] border border-[var(--primary)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-[var(--bg)] font-bold text-lg uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-[0_0_15px_rgba(var(--primary-rgb),0.2)]"
+            disabled={isSaving}
+            className="flex-[2] py-4 bg-[var(--muted-bg)] border border-[var(--primary)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-[var(--bg)] font-bold text-lg uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-[0_0_15px_rgba(var(--primary-rgb),0.2)] disabled:opacity-50"
           >
-            <Save size={20} /> {currentLogId ? "UPDATE_LOG" : "COMMIT_LOG"}
+            {isSaving ? <span className="animate-pulse">TRANSMITTING...</span> : <><Save size={20} /> {currentLogId ? "UPDATE_LOG" : "COMMIT_LOG"}</>}
           </button>
         </div>
       </form>

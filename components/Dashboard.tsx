@@ -15,11 +15,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ logs, settings }) => {
 
   useEffect(() => {
     const fetchInsight = async () => {
-      if (logs.length > 0 && !insight) {
+      // Regenerate insight if logs exist. 
+      // If we already have an insight but logs changed length (new entry), refresh it.
+      if (logs.length > 0) {
         setLoadingInsight(true);
         const result = await generateHealthInsight(logs);
         setInsight(result);
         setLoadingInsight(false);
+      } else {
+        setInsight(null);
       }
     };
     fetchInsight();
@@ -104,14 +108,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ logs, settings }) => {
         <h3 className="flex items-center gap-2 text-[var(--primary)] font-bold mb-4 uppercase tracking-wider text-sm border-b border-[var(--border)] pb-2 w-fit">
           <Sparkles size={16} /> Tactical Analysis (AI)
         </h3>
+        
         {loadingInsight ? (
            <div className="flex items-center gap-2 text-[var(--secondary)] text-sm animate-pulse">
-             <Loader2 className="animate-spin" size={16} /> PROCESSING DATA STREAM...
+             <Loader2 className="animate-spin" size={16} /> PROCESSING NEURAL STREAM...
            </div>
         ) : (
           <p className="text-[var(--primary)] font-mono leading-relaxed text-sm">
             <span className="text-[var(--secondary)] mr-2">{'>'}</span>
-            {insight || "INSUFFICIENT DATA FOR ANALYSIS. CONTINUE LOGGING."}
+            {logs.length === 0 
+               ? "NO DATA STREAMS DETECTED. PLEASE RECORD INITIAL ENTRY IN 'INPUT_LOG'." 
+               : (insight || "ANALYZING DATA PATTERNS...")
+            }
             <span className="animate-pulse ml-1">_</span>
           </p>
         )}
