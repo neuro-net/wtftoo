@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { auth, isFirebaseConfigured } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { Shield, ChevronRight, Terminal, AlertTriangle, Cpu, Globe, ExternalLink } from 'lucide-react';
+import { Shield, ChevronRight, Terminal, AlertTriangle, Cpu, Globe, ExternalLink, Info } from 'lucide-react';
 
 export const AuthScreen: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -10,6 +10,10 @@ export const AuthScreen: React.FC = () => {
   const [error, setError] = useState('');
   const [technicalError, setTechnicalError] = useState(''); // Store raw error for debugging
   const [loading, setLoading] = useState(false);
+
+  // Debug vars
+  const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'UNKNOWN';
+  const apiKey = process.env.VITE_FIREBASE_API_KEY ? `${process.env.VITE_FIREBASE_API_KEY.substring(0, 4)}...` : 'MISSING';
 
   const getFriendlyErrorMessage = (rawError: string) => {
     if (rawError.includes('auth/invalid-email')) return "Invalid email address format.";
@@ -113,14 +117,22 @@ export const AuthScreen: React.FC = () => {
                      </a>
                    )}
                    {(technicalError.includes('operation-not-allowed') || technicalError.includes('auth/configuration-not-found')) && (
-                     <a 
-                       href="https://console.firebase.google.com/"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       className="mt-2 text-center bg-red-900/50 hover:bg-red-800 py-2 text-white flex items-center justify-center gap-2"
-                     >
-                       <ExternalLink size={12} /> OPEN FIREBASE CONSOLE
-                     </a>
+                     <div className="flex flex-col gap-2 mt-2">
+                        <a 
+                          href="https://console.firebase.google.com/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-center bg-red-900/50 hover:bg-red-800 py-2 text-white flex items-center justify-center gap-2"
+                        >
+                          <ExternalLink size={12} /> OPEN FIREBASE CONSOLE
+                        </a>
+                        <div className="bg-black/50 p-2 border border-red-800/50 text-left font-mono">
+                           <p className="text-[10px] text-red-400 mb-1 flex items-center gap-1"><Info size={10} /> Verify Project Settings:</p>
+                           <p className="text-[10px] text-gray-400 break-all">App Project ID: <span className="text-white">{projectId}</span></p>
+                           <p className="text-[10px] text-gray-400">App API Key: <span className="text-white">{apiKey}</span></p>
+                           <p className="text-[10px] text-gray-500 mt-1 italic">Compare these with 'Project Settings' in console.</p>
+                        </div>
+                     </div>
                    )}
                 </div>
              )}
