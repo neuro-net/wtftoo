@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, PlusCircle, BarChart2, BookOpen, Settings, Menu, X, Cpu, Radio, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { LayoutDashboard, PlusCircle, BarChart2, BookOpen, Settings, Menu, X, Cpu, Radio, Loader2, AlertTriangle } from 'lucide-react';
 import { ViewState, DailyLog, UserSettings } from './types';
 import { getLocalLogs, saveLocalLog, deleteLocalLog, getLocalSettings, saveLocalSettings, subscribeToLogs, saveLogToCloud, deleteLogFromCloud, saveSettingsToCloud, getSettingsFromCloud } from './services/storageService';
 import { Dashboard } from './components/Dashboard';
@@ -22,6 +22,7 @@ function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [initError, setInitError] = useState<string | null>(null);
 
   const [settings, setSettingsState] = useState<UserSettings>({ name: 'User', familyMode: false, theme: 'red_alert' });
   const [logs, setLogs] = useState<DailyLog[]>([]);
@@ -29,38 +30,84 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
 
+  // Keep track of logs subscription to unsubscribe when needed
+  const logsUnsubRef = useRef<(() => void) | null>(null);
+
   // Monitor Auth State
   useEffect(() => {
     if (!auth) {
       setAuthLoading(false);
       return;
     }
+
+    // Safety timeout: If Firebase takes too long (e.g. network hang), force UI to load (likely to Auth Screen)
+    const safetyTimer = setTimeout(() => {
+       if (authLoading) {
+         console.warn("Auth initialization timed out. Forcing UI render.");
+         setAuthLoading(false);
+       }
+    }, 6000);
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      // Clear safety timer as we got a response
+      clearTimeout(safetyTimer);
+      
+      // Cleanup previous logs subscription if user changes
+      if (logsUnsubRef.current) {
+        logsUnsubRef.current();
+        logsUnsubRef.current = null;
+      }
+
       setUser(currentUser);
       
-      if (currentUser) {
-        // User is logged in: Load cloud settings and subscribe to logs
-        setDataLoading(true);
-        const cloudSettings = await getSettingsFromCloud(currentUser.uid);
-        if (cloudSettings) setSettingsState(cloudSettings);
-        
-        // Subscribe to logs (real-time)
-        const unsubLogs = subscribeToLogs(currentUser.uid, (cloudLogs) => {
-          setLogs(cloudLogs);
-          setDataLoading(false);
-        });
-        
-        setAuthLoading(false);
-        return () => unsubLogs();
-      } else {
-        // User is logged out: Fallback to local or clear
-        // We can choose to show local data or nothing. For "Cross Device", we force login.
-        setLogs([]);
-        setSettingsState(getLocalSettings()); // Reset to defaults/local
+      try {
+        if (currentUser) {
+          // User is logged in: Load cloud settings and subscribe to logs
+          setDataLoading(true);
+          
+          try {
+            const cloudSettings = await getSettingsFromCloud(currentUser.uid);
+            if (cloudSettings) setSettingsState(cloudSettings);
+          } catch (err: any) {
+            console.error("Failed to load settings (likely permissions):", err);
+            // Don't block app load, just use defaults
+            if (err.code === 'permission-denied') {
+               setInitError("Database permissions denied. Please check Cloud Firestore rules.");
+            }
+          }
+          
+          // Subscribe to logs (real-time)
+          try {
+            logsUnsubRef.current = subscribeToLogs(currentUser.uid, (cloudLogs) => {
+              setLogs(cloudLogs);
+              setDataLoading(false);
+            });
+          } catch (err) {
+             console.error("Failed to subscribe to logs:", err);
+             setDataLoading(false);
+          }
+        } else {
+          // User is logged out: Fallback to local or clear
+          setLogs([]);
+          setSettingsState(getLocalSettings()); 
+          setInitError(null);
+        }
+      } catch (err) {
+        console.error("Unexpected auth flow error:", err);
+      } finally {
+        // CRITICAL: Always turn off loading, even if errors occurred above
         setAuthLoading(false);
       }
+    }, (error) => {
+       console.error("Auth Observer Error:", error);
+       setAuthLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+      if (logsUnsubRef.current) logsUnsubRef.current();
+    };
   }, []);
 
   // Sync settings to local state for theme application immediately
@@ -119,8 +166,6 @@ function App() {
   }
 
   // 2. Auth Screen (If not logged in and Firebase is configured)
-  // If Firebase is NOT configured, we might let them use local mode or show error.
-  // The AuthScreen component handles the "Not Configured" error state gracefully.
   if (!user) {
     return <AuthScreen />;
   }
@@ -179,6 +224,13 @@ function App() {
              <Radio size={14} className={dataLoading ? "animate-spin text-[var(--primary)]" : "animate-pulse text-[var(--success)]"} />
              <span>{dataLoading ? "SYNCING..." : "LIVE UPLINK"}</span>
            </div>
+           
+           {initError && (
+              <div className="border border-red-500 bg-red-900/20 p-2 text-[10px] text-red-500 font-bold uppercase">
+                 <div className="flex items-center gap-1 mb-1"><AlertTriangle size={10} /> SYSTEM ALERT</div>
+                 {initError}
+              </div>
+           )}
         </div>
       </aside>
 

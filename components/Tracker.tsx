@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BENZO_DATA } from '../constants';
 import { DailyLog, TakenMedication } from '../types';
-import { Plus, Trash2, Save, AlertTriangle, Terminal, BrainCircuit, Clock, AlertOctagon } from 'lucide-react';
+import { Plus, Trash2, Save, AlertTriangle, Terminal, BrainCircuit, Clock, AlertOctagon, CheckCircle2 } from 'lucide-react';
 
 interface TrackerProps {
   onSave: (log: DailyLog) => Promise<void>;
@@ -33,6 +33,7 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Auto-load data if a log exists for the selected date
   useEffect(() => {
@@ -46,6 +47,7 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
       setMood(foundLog.mood || 5);
       setConfirmDelete(false);
       setError(null);
+      setSaveSuccess(false);
     } else {
       setCurrentLogId(null);
       setAlcoholConsumed(false);
@@ -55,6 +57,7 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
       setMood(5);
       setConfirmDelete(false);
       setError(null);
+      setSaveSuccess(false);
     }
   }, [date, logs]);
 
@@ -91,6 +94,7 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSaveSuccess(false);
     setIsSaving(true);
 
     const newLog: DailyLog = {
@@ -106,6 +110,9 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
 
     try {
       await onSave(newLog);
+      setSaveSuccess(true);
+      // Remove success message after 3 seconds
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
       console.error("Save failed", err);
       if (err.code === 'permission-denied') {
@@ -400,9 +407,20 @@ export const Tracker: React.FC<TrackerProps> = ({ onSave, onDelete, logs, readOn
            <button 
             type="submit" 
             disabled={isSaving}
-            className="flex-[2] py-4 bg-[var(--muted-bg)] border border-[var(--primary)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-[var(--bg)] font-bold text-lg uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-[0_0_15px_rgba(var(--primary-rgb),0.2)] disabled:opacity-50"
+            className={`flex-[2] py-4 border font-bold text-lg uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-[0_0_15px_rgba(var(--primary-rgb),0.2)] disabled:opacity-50
+               ${saveSuccess 
+                  ? 'bg-[var(--success)] text-[var(--bg)] border-[var(--success)]' 
+                  : 'bg-[var(--muted-bg)] text-[var(--primary)] border-[var(--primary)] hover:bg-[var(--primary)] hover:text-[var(--bg)]'
+               }
+            `}
           >
-            {isSaving ? <span className="animate-pulse">TRANSMITTING...</span> : <><Save size={20} /> {currentLogId ? "UPDATE_LOG" : "COMMIT_LOG"}</>}
+            {isSaving ? (
+               <span className="animate-pulse">TRANSMITTING...</span> 
+            ) : saveSuccess ? (
+               <><CheckCircle2 size={20} /> DATA SECURE</>
+            ) : (
+               <><Save size={20} /> {currentLogId ? "UPDATE_LOG" : "COMMIT_LOG"}</>
+            )}
           </button>
         </div>
       </form>
